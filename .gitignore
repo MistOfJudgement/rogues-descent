@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# maybe at some point I can release this but I use these docs as brain dumps
+docs
