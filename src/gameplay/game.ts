@@ -8,34 +8,49 @@ export type CardData = {
     description: string
     cost: number
 }
+
+export const NamedPiles = {
+    Draw: "Draw",
+    Discard: "Discard",
+    Hand: "Hand",
+    MonsterDraw: "MonsterDraw",
+    MonsterDiscard: "MonsterDiscard",
+
+} as const
+
+export function registerInDB<T extends { id: string }>(db: Record<string, T>, item: T) {
+    if (db[item.id]) {
+        throw new Error(`Tried to register item [${item.id}] already in db`)
+    }
+    db[item.id] = item
+}
+export function registerCard(card: CardData) {
+    registerInDB(CardDB, card)
+}
+export type MonsterData = {
+    id: string
+    name: string
+    health: number
+}
 export type Pile = {
     id: string
     containing: string[]
-}
+} & ({type: "transparent"} | {type:"monster", monster: MonsterData["id"]}) 
 
 type GameStateData = {
     actionTime: number
     piles: Record<string, Pile>
+    lastSummon: number
 } 
 
 
 export type GameState = Immutable<GameStateData> 
-const GS = {
-    piles: {
-        Hand: {
-            contents: []
-        },
-        Deck: {
-            contents: []
-        }
-    },
-    actionTime: 3
-}
 
 function createPile(id: Pile["id"]): Pile {
     return {
         id,
-        containing: []
+        containing: [],
+        type: "transparent"
     }
 }
 
@@ -45,7 +60,16 @@ export function addNewPile(gs: Draft<GameState>, id: Pile["id"]) {
     }
     gs.piles[id] = createPile(id)
 }
-
+function summonMonsterPile(gs: Draft<GameState>, monsterId: MonsterData["id"]) {
+    const instanceId = `${monsterId}-${gs.lastSummon}`
+    gs.lastSummon++
+    gs.piles[instanceId] = {
+        id: instanceId,
+        containing: [],
+        type: "monster",
+        monster: monsterId
+    }
+}
 function removeFromPile(
     gs: Draft<GameState>,
     card: string,
@@ -68,7 +92,8 @@ export function putIntoPile(
 export function emptyGameState(): GameState {
     return {
         actionTime: 0,
-        piles: {}
+        piles: {},
+        lastSummon: 0
     }
 }
 function pipe<T>(
@@ -78,12 +103,17 @@ function pipe<T>(
     return fns.reduce((v, fn) => fn(v), value)
 }
 export function initGame(gs: GameState): GameState {
+    gs = initDeck(gs)
+    gs = setupMonsterDrawPile(gs)
+    return gs
+}
+export function initDeck(gs: GameState): GameState {
     return produce(emptyGameState(), draft => {
-        addNewPile(draft, "Draw")
-        addNewPile(draft, "Hand")
-        addNewPile(draft, "Discard")
+        addNewPile(draft, NamedPiles.Draw)
+        addNewPile(draft, NamedPiles.Discard)
+        addNewPile(draft, NamedPiles.Hand)
         for (let i = 0; i < 5; i++) {
-            putIntoPile(draft, "Strike", "Draw")
+            putIntoPile(draft, "Strike", NamedPiles.Draw)
         }
     })
 }
@@ -121,20 +151,54 @@ export function drawCard(gs: GameState): GameState {
         if (gs.piles["Discard"].containing.length === 0) {
             return gs
         }
-        gs = shufflePileIntoPile(gs, "Discard", "Draw")
+        gs = shufflePileIntoPile(gs, NamedPiles.Discard, NamedPiles.Draw)
     }
     return produce(gs, draft => {
-        const firstCard = draft.piles["Draw"].containing[0]
-        moveCard(draft, firstCard, "Draw", "Hand")
+        const firstCard = draft.piles[NamedPiles.Draw].containing[0]
+        moveCard(draft, firstCard, NamedPiles.Draw, NamedPiles.Hand)
     })
 }
-
-export function playCard(gs: GameState, card: CardData["id"]): GameState {
+function fromPileGetAt(gs: GameState, pile: Pile["id"], index: number): string | undefined {
+    return gs.piles[pile].containing.at(index)   
+}
+export function playCard(gs: GameState, card: CardData["id"], target: Pile["id"]): GameState {
     return produce(gs, draft => {
-        if (draft.piles["Hand"].containing.indexOf(card) === -1) {
-            return draft
+        if(fromPileGetAt(draft, NamedPiles.Hand, 0) && draft.piles[target]?.type === "monster") {
+            moveCard(draft, card, NamedPiles.Hand, target)
         }
-
-        moveCard(draft, card, "Hand", "Discard")
+        //otherwise card doesn't exist or valid target doesn't exist
     })
 }
+
+function setupMonsterDrawPile(gs: GameState): GameState {
+    return produce(gs, draft => {
+        addNewPile(draft, NamedPiles.MonsterDraw)
+        addNewPile(draft, NamedPiles.MonsterDiscard)
+        putIntoPile(draft, "Slime", NamedPiles.MonsterDraw)
+    })
+}
+
+export function summonMonsterFromDraw(gs: GameState): GameState {
+    return produce(gs, draft => {
+        const toSummon = fromPileGetAt(draft, NamedPiles.MonsterDraw, 0)
+        if (toSummon) {
+            summonMonsterPile(draft, toSummon)
+            removeFromPile(draft, toSummon, NamedPiles.MonsterDraw)
+        }
+    })
+}
+
+const CardDB: Record<string, CardData> = {}
+registerCard({
+        id: "Strike",
+        name: "Strike",
+        description: "does damage",
+        cost: 1
+})
+    
+const MonsterDB: Record<string, MonsterData> = {}
+registerInDB(MonsterDB, {
+    id: "Slime",
+    name: "Slime",
+    health: 3
+})

@@ -10,11 +10,12 @@ s
 */
 
 import { produce } from "immer";
-import { addNewPile, drawCard, initGame, playCard, GameState, putIntoPile } from "./game";
+import { addNewPile, drawCard, initGame, playCard, GameState, putIntoPile, summonMonsterFromDraw } from "./game";
 
 let CurrentState: GameState = {
     actionTime: 3,
-    piles: {}
+    piles: {},
+    lastSummon: 0
 }
 
 const gameDiv = document.getElementById("game")
@@ -25,7 +26,7 @@ type GameAction = {
 }
 
 const debugActions: GameAction[] = [
-    { name: "Add Pile", action: _=>_, input: ["pileId"] },
+    { name: "Add Pile", action: _ => _, input: ["pileId"] },
     {
         name: "Put Into Pile",
         action: (gs, card, pile) => produce(gs, (draft) => { putIntoPile(draft, card, pile) }),
@@ -33,7 +34,14 @@ const debugActions: GameAction[] = [
     },
     { name: "init", action: initGame, input: [] },
     { name: "Draw Card", action: drawCard, input: [] },
-    {name: "Play Card", action: playCard, input: [(gs) => [...gs.piles["Hand"]?.containing]]}
+    {
+        name: "Play Card",
+        action: playCard,
+        input: [(gs) => [...gs.piles["Hand"]?.containing], (gs) => [...Object.values(gs.piles).filter(p => p.type === "monster").map(p=>p.id)]]
+    },
+    {
+        name: "Summon", action: summonMonsterFromDraw, input: []
+    },
 ] as const
 function setViewFromState(gs: GameState, root: HTMLElement) {
     root.innerHTML = ""
