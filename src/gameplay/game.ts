@@ -188,6 +188,26 @@ export function summonMonsterFromDraw(gs: GameState): GameState {
     })
 }
 
+function activeMonsters(gs: GameState) {
+    return Object.values(gs.piles).filter(p => p.type === "monster")
+}
+export function stateBasedActions(gs: GameState): GameState {
+    // for each enemy, if they have more attacks than health, kill them
+    gs = produce(gs, draft => {
+        for (const monsterPile of activeMonsters(gs)) {
+            if (monsterPile.containing.length >= MonsterDB[monsterPile.monster].health) {
+                shufflePileIntoPile(draft, monsterPile.id, NamedPiles.Discard)
+                putIntoPile(draft, monsterPile.monster, NamedPiles.MonsterDiscard)
+                deletePile(draft, monsterPile.id)
+            }
+        }
+    })
+    return gs
+}
+
+function deletePile(gs: Draft<GameState>, pile: Pile["id"]): void {
+    delete gs.piles[pile]
+}
 const CardDB: Record<string, CardData> = {}
 registerCard({
         id: "Strike",

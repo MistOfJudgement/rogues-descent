@@ -10,7 +10,7 @@ s
 */
 
 import { produce } from "immer";
-import { addNewPile, drawCard, initGame, playCard, GameState, putIntoPile, summonMonsterFromDraw } from "./game";
+import { addNewPile, drawCard, initGame, playCard, GameState, putIntoPile, summonMonsterFromDraw, stateBasedActions } from "./game";
 
 let CurrentState: GameState = {
     actionTime: 3,
@@ -87,7 +87,7 @@ function setViewFromState(gs: GameState, root: HTMLElement) {
 
 }
 function updateState(gs: GameState) {
-    CurrentState = gs
+    CurrentState = stateBasedActions(gs)
     refresh()
 }
 export function refresh() {
