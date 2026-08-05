@@ -1,6 +1,6 @@
 
 import { describe, expect, test } from "vitest"
-import { addNewPile, drawCard, emptyGameState, GameState, initGame, moveCard, putIntoPile, shufflePileIntoPile } from "../gameplay/game"
+import { activeMonsters, addNewPile, CardData, drawCard, emptyGameState, GameState, getCardsInPlie, getPlayableActions, initGame, MonsterData, moveCard, NamedPiles, playAction, putIntoPile, registerCard, registerInDB, setupMonsterDrawPile, shufflePileIntoPile, summonMonsterFromDraw, summonMonsterPile } from "../gameplay/game"
 import { produce } from "immer"
 describe("Game", () => {
     const drawPile = "Draw"
@@ -55,4 +55,95 @@ describe("Game", () => {
             expect(result.piles["Discard"].containing).toHaveLength(0)
         })
     })
+
+    describe("monsters", () => {
+        const baseGameState = setupMonsterDrawPile(emptyGameState())
+        const monster = "Slime"
+        test("monster can be summoned from monster pile", () => {
+            const gs = produce(baseGameState, draft => {
+                putIntoPile(draft, monster, NamedPiles.MonsterDraw)
+            })
+
+            const result = summonMonsterFromDraw(gs)
+
+            expect(activeMonsters(result)).toHaveLength(1)
+            expect(activeMonsters(result)[0].monster).toMatch(monster)
+        })
+    })
+
+    describe("playing cards", () => {
+        function createTestGameSetup(cards: CardData["id"][] = [], monsters: MonsterData["id"][] = [], augmentDB?: {monsters: MonsterData[], cards: CardData[]}) {
+            return produce(initGame(emptyGameState()), (draft) => {
+                // Clear initial draw pile to keep tests deterministic
+                draft.piles[NamedPiles.Draw].containing = []
+                if (!augmentDB) {
+                    return;
+                }
+
+                augmentDB.cards.forEach(c => {
+                    registerCard(draft, c)
+                });
+                
+                augmentDB.monsters.forEach(m => {
+                    registerInDB(draft.lookupDb.monsters, m)
+                })
+                cards.forEach(c => putIntoPile(draft, c, NamedPiles.Hand))
+                monsters.forEach(m => summonMonsterPile(draft, m))
+            })
+        }
+
+        const singleDamageCard: CardData = {
+            cost: 0,
+            id: "SingleDamage",
+            name: "SingleDamage",
+            description: "Does 1 point of damage",
+            types: ["attack"],
+            damage: 1,
+        }
+
+        const oneHealthMonster: MonsterData = {
+            id: "OneHealth",
+            health: 1,
+            name: "OneHealth",
+        }
+
+        
+        describe("playable actions", () => {
+            test("generates an attach action when monster is present", () => {
+            const gs = createTestGameSetup(["Strike"], ["Slime"])
+                
+            const monsterId = activeMonsters(gs)[0].id
+
+            expect(getPlayableActions(gs)).toContainEqual({
+                actionType: "attach",
+                card: "Strike",
+                target: monsterId,
+            })
+            })
+        })
+
+        describe("attaching cards", () => {
+            test("attaches card from hand to target monster", () => {
+            const gs = createTestGameSetup(["Strike"], ["Slime"])
+            const monsterId = activeMonsters(gs)[0].id
+
+            const result = playAction(gs, { actionType: "attach", card: "Strike", target: monsterId })
+
+            expect(getCardsInPlie(result, NamedPiles.Hand)).not.toContain("Strike")
+            expect(getCardsInPlie(result, monsterId)).toContain("Strike")
+            })
+        })
+
+        describe("lethal damage", () => {
+            test("removes target monster from active monsters when killed", () => {
+            const gs = createTestGameSetup([singleDamageCard.id], [oneHealthMonster.id], {cards: [singleDamageCard], monsters: [oneHealthMonster]})
+            const monsterId = activeMonsters(gs)[0].id
+
+            const result = playAction(gs, { actionType: "attach", card: "SingleDamage", target: monsterId })
+
+            expect(activeMonsters(result)).toHaveLength(0)
+            })
+        })
+    })
+
 })
