@@ -25,6 +25,20 @@ describe("Game", () => {
             })
         }
 
+        const singleDamageCard: CardData = {
+            cost: 0,
+            lookupId: "SingleDamage",
+            name: "SingleDamage",
+            description: "Does 1 point of damage",
+            types: ["attack"],
+            damage: 1,
+        }
+
+        const oneHealthMonster: MonsterData = {
+            lookupId: "OneHealth",
+            health: 1,
+            name: "OneHealth",
+        }
     const baseGameState = produce(emptyGameState(), draft => {
         addNewPile(draft, NamedPiles.Draw)
         addNewPile(draft, NamedPiles.Hand)
@@ -93,20 +107,6 @@ describe("Game", () => {
 
     describe("playing cards", () => {
         
-        const singleDamageCard: CardData = {
-            cost: 0,
-            lookupId: "SingleDamage",
-            name: "SingleDamage",
-            description: "Does 1 point of damage",
-            types: ["attack"],
-            damage: 1,
-        }
-
-        const oneHealthMonster: MonsterData = {
-            lookupId: "OneHealth",
-            health: 1,
-            name: "OneHealth",
-        }
 
         
         describe("playable actions", () => {
@@ -155,6 +155,17 @@ describe("Game", () => {
             gs = produce(gs, draft => { draft.actionTime -= 1 })
             gs = playAction(gs, { actionType: "endTurn" })
             expect(gs.actionTime).toEqual(startingTime)
+        })
+
+        test("ending the turn with an enemy forces an action", () => {
+            let gs = createTestGameSetup([], ["unknown"])
+            const monster = activeMonsters(gs)[0]
+            gs = playAction(gs, { actionType: "endTurn" })
+            expect(getPlayableActions(gs)).toContain({
+                actionType: "chooseMonsterAction",
+                monster: monster.id,
+                actionOption: "optionOne"
+            })
         })
     })
 
