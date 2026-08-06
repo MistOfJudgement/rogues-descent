@@ -1,46 +1,66 @@
 
 import { describe, expect, test } from "vitest"
-import { activeMonsters, addNewPile, CardData, drawCard, emptyGameState, GameState, getCardsInPlie, getPlayableActions, initGame, MonsterData, moveCard, NamedPiles, playAction, putIntoPile, registerCard, registerInDB, setupMonsterDrawPile, shufflePileIntoPile, summonMonsterFromDraw, summonMonsterPile } from "../gameplay/game"
 import { produce } from "immer"
+import { CardData, registerCard } from "../gameplay/card"
+import { emptyGameState, addNewPile, putIntoPile, moveCard, shufflePileIntoPile, drawCard, NamedPiles, summonMonsterFromDraw, activeMonsters, MonsterData, initGame, summonMonsterPile, getPlayableActions, playAction, getCardsInPlie, setupMonsterDrawPile, GameState } from "../gameplay/game"
+import { Identified, registerInDb } from "../gameplay/lookupDb"
 describe("Game", () => {
-    const drawPile = "Draw"
-    const handPile = "Hand"
+    function createTestGameSetup(cards: Identified<CardData>[] = [], monsters: Identified<MonsterData>[] = [], augmentDB?: {monsters: MonsterData[], cards: CardData[]}): GameState {
+            return produce(initGame(emptyGameState()), (draft) => {
+                // Clear initial draw pile to keep tests deterministic
+                draft.piles[NamedPiles.Draw].containing = []
+                cards.forEach(c => putIntoPile(draft, c, NamedPiles.Hand))
+                monsters.forEach(m => summonMonsterPile(draft, m))
+                if (!augmentDB) {
+                    return;
+                }
+
+                augmentDB.cards.forEach(c => {
+                    registerCard(draft, c)
+                });
+                
+                augmentDB.monsters.forEach(m => {
+                    registerInDb(draft.lookupDb.monsters, m)
+                })
+            })
+        }
+
     const baseGameState = produce(emptyGameState(), draft => {
-        addNewPile(draft, drawPile)
-        addNewPile(draft, handPile)
+        addNewPile(draft, NamedPiles.Draw)
+        addNewPile(draft, NamedPiles.Hand)
     })
     test("moveCard", () => {
         const gs = produce(baseGameState, draft => {
-            putIntoPile(draft, "testcard", drawPile)
+            putIntoPile(draft, "testcard", NamedPiles.Draw)
         })
-        const result = produce(gs, d => moveCard(d, "testcard", drawPile, handPile))
-        expect(result.piles[drawPile].containing.length).toEqual(0)
-        expect(result.piles[handPile].containing.length).toEqual(1)
-        expect(result.piles[handPile].containing).toContain("testcard")
+        const result = produce(gs, d => moveCard(d, "testcard", NamedPiles.Draw, NamedPiles.Hand))
+        expect(result.piles[NamedPiles.Draw].containing.length).toEqual(0)
+        expect(result.piles[NamedPiles.Hand].containing.length).toEqual(1)
+        expect(result.piles[NamedPiles.Hand].containing).toContain("testcard")
     })
 
     test("shufflePile", () => {
         const gs = produce(baseGameState, draft => {
-            putIntoPile(draft, "testcard", drawPile)
-            putIntoPile(draft, "testcard2", drawPile)
+            putIntoPile(draft, "testcard", NamedPiles.Draw)
+            putIntoPile(draft, "testcard2", NamedPiles.Draw)
         })
-        const result = shufflePileIntoPile(gs, drawPile, handPile)
-        expect(result.piles[drawPile].containing.length).toEqual(0)
-        expect(result.piles[handPile].containing.length).toEqual(2)
-        expect(result.piles[handPile].containing).toContain("testcard")
+        const result = shufflePileIntoPile(gs, NamedPiles.Draw, NamedPiles.Hand)
+        expect(result.piles[NamedPiles.Draw].containing.length).toEqual(0)
+        expect(result.piles[NamedPiles.Hand].containing.length).toEqual(2)
+        expect(result.piles[NamedPiles.Hand].containing).toContain("testcard")
     })
 
     describe("draw", () => {
         test("normal draw", () => {
             const gs = produce(baseGameState, draft => {
-                putIntoPile(draft, "card1", drawPile)
-                putIntoPile(draft, "card2", drawPile)
+                putIntoPile(draft, "card1", NamedPiles.Draw)
+                putIntoPile(draft, "card2", NamedPiles.Draw)
             })
             const result = drawCard(gs)
-            expect(result.piles[drawPile].containing).toHaveLength(1)
-            expect(result.piles[handPile].containing).toHaveLength(1)
-            expect(result.piles[drawPile].containing).toContain("card2")
-            expect(result.piles[handPile].containing).toContain("card1")
+            expect(result.piles[NamedPiles.Draw].containing).toHaveLength(1)
+            expect(result.piles[NamedPiles.Hand].containing).toHaveLength(1)
+            expect(result.piles[NamedPiles.Draw].containing).toContain("card2")
+            expect(result.piles[NamedPiles.Hand].containing).toContain("card1")
         })
 
         test("shuffle from discard", () => {
@@ -49,9 +69,9 @@ describe("Game", () => {
                 putIntoPile(draft, "card1", "Discard")
             })
             const result = drawCard(gs)
-            expect(result.piles[drawPile].containing).toHaveLength(0)
-            expect(result.piles[handPile].containing).toHaveLength(1)
-            expect(result.piles[handPile].containing).toContain("card1")
+            expect(result.piles[NamedPiles.Draw].containing).toHaveLength(0)
+            expect(result.piles[NamedPiles.Hand].containing).toHaveLength(1)
+            expect(result.piles[NamedPiles.Hand].containing).toContain("card1")
             expect(result.piles["Discard"].containing).toHaveLength(0)
         })
     })
@@ -72,29 +92,10 @@ describe("Game", () => {
     })
 
     describe("playing cards", () => {
-        function createTestGameSetup(cards: CardData["id"][] = [], monsters: MonsterData["id"][] = [], augmentDB?: {monsters: MonsterData[], cards: CardData[]}) {
-            return produce(initGame(emptyGameState()), (draft) => {
-                // Clear initial draw pile to keep tests deterministic
-                draft.piles[NamedPiles.Draw].containing = []
-                if (!augmentDB) {
-                    return;
-                }
-
-                augmentDB.cards.forEach(c => {
-                    registerCard(draft, c)
-                });
-                
-                augmentDB.monsters.forEach(m => {
-                    registerInDB(draft.lookupDb.monsters, m)
-                })
-                cards.forEach(c => putIntoPile(draft, c, NamedPiles.Hand))
-                monsters.forEach(m => summonMonsterPile(draft, m))
-            })
-        }
-
+        
         const singleDamageCard: CardData = {
             cost: 0,
-            id: "SingleDamage",
+            lookupId: "SingleDamage",
             name: "SingleDamage",
             description: "Does 1 point of damage",
             types: ["attack"],
@@ -102,7 +103,7 @@ describe("Game", () => {
         }
 
         const oneHealthMonster: MonsterData = {
-            id: "OneHealth",
+            lookupId: "OneHealth",
             health: 1,
             name: "OneHealth",
         }
@@ -110,15 +111,15 @@ describe("Game", () => {
         
         describe("playable actions", () => {
             test("generates an attach action when monster is present", () => {
-            const gs = createTestGameSetup(["Strike"], ["Slime"])
+                const gs = createTestGameSetup(["Strike"], ["Slime"])
                 
-            const monsterId = activeMonsters(gs)[0].id
+                const monsterId = activeMonsters(gs)[0].id
 
-            expect(getPlayableActions(gs)).toContainEqual({
-                actionType: "attach",
-                card: "Strike",
-                target: monsterId,
-            })
+                expect(getPlayableActions(gs)).toContainEqual({
+                    actionType: "attach",
+                    card: "Strike",
+                    target: monsterId,
+                })
             })
         })
 
@@ -136,13 +137,24 @@ describe("Game", () => {
 
         describe("lethal damage", () => {
             test("removes target monster from active monsters when killed", () => {
-            const gs = createTestGameSetup([singleDamageCard.id], [oneHealthMonster.id], {cards: [singleDamageCard], monsters: [oneHealthMonster]})
+            const gs = createTestGameSetup([singleDamageCard.lookupId], [oneHealthMonster.lookupId], {cards: [singleDamageCard], monsters: [oneHealthMonster]})
             const monsterId = activeMonsters(gs)[0].id
 
             const result = playAction(gs, { actionType: "attach", card: "SingleDamage", target: monsterId })
 
             expect(activeMonsters(result)).toHaveLength(0)
             })
+        })
+    })
+
+    describe("turn phases", () => {
+        test("ending the turn with no enemies resets your actionTime", () => {
+            let gs = createTestGameSetup(["Strike"], [])
+            const startingTime = gs.actionTime
+
+            gs = produce(gs, draft => { draft.actionTime -= 1 })
+            gs = playAction(gs, { actionType: "endTurn" })
+            expect(gs.actionTime).toEqual(startingTime)
         })
     })
 

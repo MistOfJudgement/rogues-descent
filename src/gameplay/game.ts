@@ -1,22 +1,9 @@
-import { Draft, Immutable, produce } from "immer"
+import { Draft, enableMapSet, Immutable, produce } from "immer"
+import { CardData, registerCard } from "./card"
+import { BaseCardDb } from "./cardDb"
+import { Identifiable, Identified, LookupDb, lookupInDb, registerInDb } from "./lookupDb"
 
-type CardType = "attack" | "spell" | "maneuver"
-type AttackCard = {
-    types: CardType[]
-    damage: number | ((gs: GameState) => number)
-}
-type NonAttackCard = {
-    types: Exclude<CardType, "attack">[],
-    damage?: never
-}
-
-export type CardData = {
-    id: string
-    name: string
-    description: string
-    cost: number
-} & (AttackCard | NonAttackCard)
-
+enableMapSet()
 
 export const NamedPiles = {
     Draw: "Draw",
@@ -27,43 +14,37 @@ export const NamedPiles = {
 
 } as const
 
-export function registerInDB<T extends { id: string }>(db: Record<string, T>, item: T) {
-    if (db[item.id]) {
-        throw new Error(`Tried to register item [${item.id}] already in db`)
-    }
-    db[item.id] = item
-}
-export function registerCard(gs: Draft<GameState>, card: CardData) {
-    registerInDB(gs.lookupDb.cards, card)
-}
+
 export type MonsterData = {
-    id: string
     name: string
     health: number
-}
+} & Identifiable<string>
 export type BasePile = {
-    id: string
+    id: string // note we really should refactor to instanced
     containing: string[]
 }
 
 export type OpenPile = BasePile & { type: "transparent" }
-export type MonsterPile = BasePile & { type: "monster", monster: MonsterData["id"] }
+export type MonsterPile = BasePile & { type: "monster", monster: MonsterData["lookupId"] }
 
 export type Pile = OpenPile | MonsterPile
+
+const startingActionTime = 3
+// TODO: Refactor into game state and engine. Engine handles lookups and step handling
 type GameStateData = {
     actionTime: number
     piles: Record<string, Pile>
     lastSummon: number
     stepStack: unknown[]
     lookupDb: {
-        cards: Record<CardData["id"], CardData>
-        monsters: Record<MonsterData["id"], MonsterData>
+        cards: LookupDb<CardData>
+        monsters: LookupDb<MonsterData>
     }
 } 
 
 
 export type GameState = Immutable<GameStateData> 
-
+export type DraftGame = Draft<GameState>
 function createPile(id: Pile["id"]): Pile {
     return {
         id,
@@ -79,7 +60,7 @@ export function addNewPile(gs: Draft<GameState>, id: Pile["id"]) {
     gs.piles[id] = createPile(id)
 }
 
-export function summonMonsterPile(gs: Draft<GameState>, monsterId: MonsterData["id"]) {
+export function summonMonsterPile(gs: Draft<GameState>, monsterId: MonsterData["lookupId"]) {
     const instanceId = `${monsterId}-${gs.lastSummon}`
     gs.lastSummon++
     gs.piles[instanceId] = {
@@ -110,15 +91,22 @@ export function putIntoPile(
 
 export function emptyGameState(): GameState {
     return {
-        actionTime: 0,
+        actionTime: startingActionTime,
         piles: {},
         lastSummon: 0,
         stepStack: [],
         lookupDb: {
-            cards: {},
-            monsters: {}
+            cards: new Map(),
+            monsters: new Map()
         }
     }
+}
+
+export function initLookupDb(gs: GameState): GameState {
+    return produce(gs, draft => {
+        BaseCardDb.forEach(c => registerCard(draft, c))
+        BaseMonsterDB.forEach(m => registerInDb(draft.lookupDb.monsters, m))
+    })
 }
 function pipe<T>(
     value: T,
@@ -129,6 +117,7 @@ function pipe<T>(
 export function initGame(gs: GameState): GameState {
     gs = initDeck(gs)
     gs = setupMonsterDrawPile(gs)
+    gs = initLookupDb(gs)
     return gs
 }
 export function initDeck(gs: GameState): GameState {
@@ -185,7 +174,7 @@ export function drawCard(gs: GameState): GameState {
 function fromPileGetAt(gs: GameState, pile: Pile["id"], index: number): string | undefined {
     return gs.piles[pile].containing.at(index)   
 }
-export function playCard(gs: GameState, card: CardData["id"], target: Pile["id"]): GameState {
+export function playCard(gs: GameState, card: CardData["lookupId"], target: Pile["id"]): GameState {
     return produce(gs, draft => {
         if(fromPileGetAt(draft, NamedPiles.Hand, 0) && draft.piles[target]?.type === "monster") {
             moveCard(draft, card, NamedPiles.Hand, target)
@@ -219,7 +208,7 @@ export function stateBasedActions(gs: GameState): GameState {
     // for each enemy, if they have more attacks than health, kill them
     gs = produce(gs, draft => {
         for (const monsterPile of activeMonsters(gs)) {
-            if (monsterPile.containing.length >= MonsterDB[monsterPile.monster].health) {
+            if (monsterPile.containing.length >= lookupInDb(gs.lookupDb.monsters, monsterPile.monster).health) {
                 shufflePileIntoPile(draft, monsterPile.id, NamedPiles.Discard)
                 putIntoPile(draft, monsterPile.monster, NamedPiles.MonsterDiscard)
                 deletePile(draft, monsterPile.id)
@@ -234,35 +223,21 @@ export function getCardsInPlie(gs: GameState, pile: Pile["id"]): Immutable<Pile[
 function deletePile(gs: Draft<GameState>, pile: Pile["id"]): void {
     delete gs.piles[pile]
 }
-const CardDB: Record<string, CardData> = {}
-// registerCard({
-//         id: "Knife",
-//         name: "Knife",
-//         description: "Deal 1D",
-//     cost: 1,
-//     types: ["attack"],
-//     damage: 1
-
-// })
-const BaseCardDb: CardData[] = [{
-        id: "Knife",
-        name: "Knife",
-        description: "Deal 1D",
-    cost: 1,
-    types: ["attack"],
-    damage: 1
-
-}]
 
 
 type AttachAction = {
     actionType: "attach",
-    card: CardData["id"],
+    card: Identified<CardData>,
     target: MonsterPile["id"]
+}
+
+type EndTurnAction = {
+    actionType: "endTurn"
 }
 
 type Action = 
     | AttachAction
+    | EndTurnAction
     
 export function getPlayableActions(gs: GameState): Action[] {
     return getCardsInPlie(gs, NamedPiles.Hand).flatMap(c => activeMonsters(gs).map(m => ({
@@ -272,18 +247,23 @@ export function getPlayableActions(gs: GameState): Action[] {
     })))
 }
 
+// TODO: register handlers for each action
 export function playAction(gs: GameState, action: Action): GameState {
     switch (action.actionType) {
         case "attach":
-            return produce(gs, draft => {
+            return stateBasedActions(produce(gs, draft => {
                 attachAction(draft, action)
-            })
+            }))
+        case "endTurn": 
+            return stateBasedActions(produce(gs, draft => {
+                draft.actionTime = startingActionTime
+            }))
     }
 }
 
 function attachAction(gs: Draft<GameState>, action: AttachAction): void {
     moveCard(gs, action.card, NamedPiles.Hand, action.target)
-} 
+}
 /**
  * Monsters (initial guesses of 3 health and 1 time and 1 attack meaning 5? value points)
  * 
@@ -305,35 +285,6 @@ Slithering Snake (2/1)
     1A:  Trash a card from your discard
     1A: 1D
 
-Actions
-Knife - (1T/Attack)
-    Deal 1D
-    plain damage
-Bolt - (1T/Attack Spell)
-    Deal 1D or draw a card
-    modal choice
-Hit and Run - (1T/Maneuver)
-    Costs -1T if following an Attack
-    Draw a card
-    variable cost
-Rapier - (2T/Attack)
-    Deal 2D
-Heavy Axe - (3T/Attack)
-    Costs -1T if this is the first action in the turn
-    Deal 3D
-    Turn state management
-Foresight - (1T/Maneuver Spell)
-    Draw 2 cards
-Throwing Axe - (1T/Attack)
-    \\R[1-3] You may spend 1T to return this to hand
-    \\R[4-6] Deal 3D
-    Random effect
-Plan of Attack - (0T/Maneuver)
-    Follow up attack costs -1T
-    Future effect - cost reduction
-Take the initiative - (1T/Maneuver)
-    Follow up attack costs -2T if this monster is undamaged
-    Future effect - conditional cost reduction
 
 Items
 - Multiple actions per card available outside the hand
@@ -362,9 +313,11 @@ Shop
 
  */
     
-const MonsterDB: Record<string, MonsterData> = {}
-registerInDB(MonsterDB, {
-    id: "Slime",
-    name: "Slime",
-    health: 3
-})
+
+const BaseMonsterDB: MonsterData[] = [
+    {
+        lookupId: "Slime",
+        name: "Slime",
+        health: 3
+    }
+]
