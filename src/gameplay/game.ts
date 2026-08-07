@@ -32,15 +32,22 @@ const startingActionTime = 3
 
 export type OptionChoice = {
     optionId: string
-    effect: unknown[]
+    effects: GameStep[]
 }
 export type PromptChoiceStep = {
     stepType: "PromptChoice"
     source?: MonsterPile["id"]
     choices: OptionChoice[]
 }
+
+export type ModifyTimeStep = {
+    stepType: "modifyTime",
+    modifier: number
+}
 export type GameStep = 
     | PromptChoiceStep
+    | ModifyTimeStep
+
 // TODO: Refactor into game state and engine. Engine handles lookups and step handling
 type GameStateData = {
     actionTime: number
@@ -190,17 +197,42 @@ export function playCard(gs: GameState, card: CardDefinition["lookupId"], target
 }
 
 export function stateBasedActions(gs: GameState): GameState {
-    // for each enemy, if they have more attacks than health, kill them
-    gs = produce(gs, draft => {
-        for (const monsterPile of activeMonsters(gs)) {
-            if (monsterPile.containing.length >= lookupInDb(draft.lookupDb.monsters, monsterPile.monster).health) {
-                shufflePileIntoPile(draft, monsterPile.id, NamedPiles.Discard)
-                putIntoPile(draft, monsterPile.monster, NamedPiles.MonsterDiscard)
-                deletePile(draft, monsterPile.id)
+    return produce(gs, draft => {
+        let hasChanged = true;
+        let depth = 0
+        while (hasChanged && depth < 100) {
+            hasChanged = false;
+            // depth += 1
+            // Note: activeMonsters should accept draft or GameState safely
+            for (const monsterPile of activeMonsters(draft as unknown as GameState)) {
+                const health = lookupInDb(draft.lookupDb.monsters, monsterPile.monster).health;
+
+                if (monsterPile.containing.length >= health) {
+                    shufflePileIntoPile(draft, monsterPile.id, NamedPiles.Discard);
+                    putIntoPile(draft, monsterPile.monster, NamedPiles.MonsterDiscard);
+                    deletePile(draft, monsterPile.id);
+
+                    // Trigger another pass in case this death cascades
+                    hasChanged = true;
+                }
             }
+
+            //If the top step is not a choice, execute it
+            const step = draft.stepStack.pop()
+            if (step?.stepType !== "PromptChoice") {
+                switch (step?.stepType) {
+                    case "modifyTime":
+                        draft.actionTime += step.modifier
+                        hasChanged = true
+                        break;
+                }
+            } else {
+                //restore, eventually we'll add a peek operation
+                draft.stepStack.push(step)
+            }
+            
         }
-    })
-    return gs
+    });
 }
 export function getCardsInPlie(gs: GameState, pile: Pile["id"]): Immutable<Pile["containing"]> {
     return gs.piles[pile].containing;
@@ -225,10 +257,17 @@ type ChooseMonsterMoveAction = {
     actionOption: OptionChoice["optionId"]
     monster: MonsterPile["id"]
 }
+
+type ChooseOptionAction = {
+    actionType: "chooseOption"
+    actionOption: OptionChoice["optionId"]
+}
+
 type Action = 
     | AttachAction
     | EndTurnAction
     | ChooseMonsterMoveAction
+    | ChooseOptionAction
     
 export function getPlayableActions(gs: GameState): Action[] {
     if (gs.stepStack.length === 0) {
@@ -251,6 +290,7 @@ export function getPlayableActions(gs: GameState): Action[] {
                 }))
             }
         }
+        return step.choices.map<ChooseOptionAction>(opt => ({actionType: "chooseOption", actionOption: opt.optionId}))
     }
 
     return []
@@ -273,7 +313,19 @@ export function playAction(gs: GameState, action: Action): GameState {
                 })))
             }))
         case "chooseMonsterMove":
-            return gs
+        case "chooseOption":
+            return stateBasedActions(produce(gs, draft => {
+                const currentStep = draft.stepStack.pop()
+                if (currentStep?.stepType === "PromptChoice") {
+                    const chosenOption = currentStep.choices.find(c => c.optionId === action.actionOption)
+                    if (chosenOption) {
+                        draft.stepStack.push(...chosenOption.effects)
+                        
+                    }
+                } else {
+                    draft.stepStack.push()
+                }
+            }))
     }
 }
 

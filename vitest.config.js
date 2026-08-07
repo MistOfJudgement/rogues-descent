@@ -4,6 +4,6 @@ export default defineConfig({
   test: {
     chaiConfig: {
       truncateThreshold: 999
-    }
-  },
+    },
+  }
 })

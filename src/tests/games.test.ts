@@ -1,5 +1,5 @@
 
-import { describe, expect, test } from "vitest"
+import { assert, describe, expect, test } from "vitest"
 import { produce } from "immer"
 import { CardDefinition, registerCard } from "../gameplay/card"
 import { Identified, registerInDb } from "../gameplay/lookupDb"
@@ -160,7 +160,7 @@ describe("Game", () => {
         })
 
         test("ending the turn with an enemy forces an action", () => {
-            let gs = createTestGameSetup([], ["oneChoiceMonster"], {
+            let gs = createTestGameSetup(["Strike"], ["oneChoiceMonster"], {
                 monsters: [{
                     lookupId: "oneChoiceMonster",
                     name: "oneChoiceMonster",
@@ -168,7 +168,7 @@ describe("Game", () => {
                     moves: [
                         {
                             optionId: "optionOne",
-                            effect: []
+                            effects: []
                         }
                     ]
                 }],
@@ -180,6 +180,32 @@ describe("Game", () => {
                 monster: monster.id,
                 actionOption: "optionOne"
             })
+        })
+    })
+
+    describe("choiceActions", () => {
+        test("choiceAction runs effects", () => {
+            let gs = produce(createTestGameSetup(), draft => {
+                draft.stepStack.push({
+                    stepType: "PromptChoice",
+                    choices: [
+                        {
+                            optionId: "optionOne",
+                            effects: [{
+                                stepType: "modifyTime",
+                                modifier: 1
+                            }]
+                        }
+                    ]
+                })
+            })
+            const startingTime = gs.actionTime
+            const actions = getPlayableActions(gs)
+            expect(actions).toHaveLength(1)
+            const result = playAction(gs, actions[0])
+
+            expect(result.actionTime).toEqual(startingTime + 1)
+
         })
     })
 
