@@ -10,8 +10,9 @@ s
 */
 
 import { produce } from "immer";
-import { GameState, initGame, emptyGameState, putIntoPile, drawCard, playCard, stateBasedActions } from "./game";
+import { GameState, initGame, emptyGameState, putIntoPile, drawCard, playCard, stateBasedActions, NamedPiles, summonMonsterPile } from "./game";
 import { summonMonsterFromDraw } from "./monster";
+import { lookupInDb } from "./lookupDb";
 
 let CurrentState: GameState = initGame(emptyGameState())
 
@@ -39,6 +40,16 @@ const debugActions: GameAction[] = [
     {
         name: "Summon", action: summonMonsterFromDraw, input: []
     },
+    {
+        name: "Add card to hand",
+        input: [(gs) => [...gs.lookupDb.cards.keys()]],
+        action: (gs, card) => produce(gs, (draft) => {putIntoPile(draft, card, NamedPiles.Hand)})
+    },
+    {
+        name: "summon to play",
+        input: [(gs) => [...gs.lookupDb.monsters.keys()]],
+        action: (gs, monster) => produce(gs, draft => { summonMonsterPile(draft, monster) })
+    }
 ] as const
 function setViewFromState(gs: GameState, root: HTMLElement) {
     root.innerHTML = ""
@@ -47,9 +58,16 @@ function setViewFromState(gs: GameState, root: HTMLElement) {
     root.appendChild(atDisplay)
 
     for (const [k, v] of Object.entries(gs.piles)) {
-        const pileDisplay = document.createElement("p")
-        pileDisplay.innerText = `${k}: ${JSON.stringify(v.containing)}`
-        root.appendChild(pileDisplay)
+        if (v.type === "transparent") {
+            const pileDisplay = document.createElement("p")
+            pileDisplay.innerText = `${k}: ${JSON.stringify(v.containing)}`
+            root.appendChild(pileDisplay)
+        } else if(v.type === "monster") {
+             const pileDisplay = document.createElement("p")
+            pileDisplay.innerText = `${v.id}: Health ${lookupInDb(gs.lookupDb.monsters, v.monster).health}: ${JSON.stringify(v.containing)}`
+            root.appendChild(pileDisplay)
+        }
+
     }
 
     for (const action of debugActions) {

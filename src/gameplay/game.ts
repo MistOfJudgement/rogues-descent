@@ -128,19 +128,16 @@ export function initLookupDb(gs: GameState): GameState {
 }
 
 export function initGame(gs: GameState): GameState {
-    gs = initDeck(gs)
+    gs = setupCardPiles(gs)
     gs = setupMonsterDrawPile(gs)
     gs = initLookupDb(gs)
     return gs
 }
-export function initDeck(gs: GameState): GameState {
+export function setupCardPiles(gs: GameState): GameState {
     return produce(emptyGameState(), draft => {
         addNewPile(draft, NamedPiles.Draw)
         addNewPile(draft, NamedPiles.Discard)
         addNewPile(draft, NamedPiles.Hand)
-        for (let i = 0; i < 5; i++) {
-            putIntoPile(draft, "Strike", NamedPiles.Draw)
-        }
     })
 }
 
