@@ -14,10 +14,15 @@ export function clearDb<I extends Identifiable>(db: LookupDb<I>) {
     db.clear()
 }
 
-export function lookupInDb<I extends Identifiable>(db: Immutable<LookupDb<I>>, key: Immutable<I["lookupId"]>): Immutable<I> {
-    const value = db.get(key)
+export function lookupInDb<I extends Identifiable>(db: LookupDb<I>, key: I["lookupId"]): I;
+export function lookupInDb<I extends Identifiable>(db: Immutable<LookupDb<I>>, key: Immutable<I["lookupId"]>): Immutable<I>;
+export function lookupInDb<I extends Identifiable>(
+    db: LookupDb<I> | Immutable<LookupDb<I>>, 
+    key: I["lookupId"] | Immutable<I["lookupId"]>
+): I | Immutable<I> {
+    const value = db.get(key as any);
     if (!value) {
-        throw new Error(`Tried to lookup key (${key.toString()}) not in db`)
+        throw new Error(`Tried to lookup key (${key.toString()}) not in db`);
     }
-    return value
+    return value;
 }

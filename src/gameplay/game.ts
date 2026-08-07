@@ -1,7 +1,9 @@
 import { Draft, enableMapSet, Immutable, produce } from "immer"
 import { CardDefinition, registerCard } from "./card"
-import { BaseCardDb } from "./cardDb"
+import { BaseCardDb } from "./db/cardDb"
 import { Identifiable, Identified, LookupDb, lookupInDb, registerInDb } from "./lookupDb"
+import { BaseMonsterDB } from "./db/monsterDb"
+import { MonsterDefinition, setupMonsterDrawPile, activeMonsters } from "./monster"
 
 enableMapSet()
 
@@ -15,10 +17,7 @@ export const NamedPiles = {
 } as const
 
 
-export type MonsterDefinition = {
-    name: string
-    health: number
-} & Identifiable<string>
+
 export type BasePile = {
     id: string // note we really should refactor to instanced
     containing: string[]
@@ -30,12 +29,24 @@ export type MonsterPile = BasePile & { type: "monster", monster: MonsterDefiniti
 export type Pile = OpenPile | MonsterPile
 
 const startingActionTime = 3
+
+export type OptionChoice = {
+    optionId: string
+    effect: unknown[]
+}
+export type PromptChoiceStep = {
+    stepType: "PromptChoice"
+    source?: MonsterPile["id"]
+    choices: OptionChoice[]
+}
+export type GameStep = 
+    | PromptChoiceStep
 // TODO: Refactor into game state and engine. Engine handles lookups and step handling
 type GameStateData = {
     actionTime: number
     piles: Record<string, Pile>
     lastSummon: number
-    stepStack: unknown[]
+    stepStack: GameStep[]
     lookupDb: {
         cards: LookupDb<CardDefinition>
         monsters: LookupDb<MonsterDefinition>
@@ -70,7 +81,7 @@ export function summonMonsterPile(gs: Draft<GameState>, monsterId: MonsterDefini
         monster: monsterId
     }
 }
-function removeFromPile(
+export function removeFromPile(
     gs: Draft<GameState>,
     card: string,
     pile: Pile["id"]
@@ -108,12 +119,7 @@ export function initLookupDb(gs: GameState): GameState {
         BaseMonsterDB.forEach(m => registerInDb(draft.lookupDb.monsters, m))
     })
 }
-function pipe<T>(
-    value: T,
-    ...fns: Array<(x: T) => T>
-): T {
-    return fns.reduce((v, fn) => fn(v), value)
-}
+
 export function initGame(gs: GameState): GameState {
     gs = initDeck(gs)
     gs = setupMonsterDrawPile(gs)
@@ -171,7 +177,7 @@ export function drawCard(gs: GameState): GameState {
         moveCard(draft, firstCard, NamedPiles.Draw, NamedPiles.Hand)
     })
 }
-function fromPileGetAt(gs: GameState, pile: Pile["id"], index: number): string | undefined {
+export function fromPileGetAt(gs: GameState, pile: Pile["id"], index: number): string | undefined {
     return gs.piles[pile].containing.at(index)   
 }
 export function playCard(gs: GameState, card: CardDefinition["lookupId"], target: Pile["id"]): GameState {
@@ -183,32 +189,11 @@ export function playCard(gs: GameState, card: CardDefinition["lookupId"], target
     })
 }
 
-export function setupMonsterDrawPile(gs: GameState): GameState {
-    return produce(gs, draft => {
-        addNewPile(draft, NamedPiles.MonsterDraw)
-        addNewPile(draft, NamedPiles.MonsterDiscard)
-        putIntoPile(draft, "Slime", NamedPiles.MonsterDraw)
-    })
-}
-
-export function summonMonsterFromDraw(gs: GameState): GameState {
-    return produce(gs, draft => {
-        const toSummon = fromPileGetAt(draft, NamedPiles.MonsterDraw, 0)
-        if (toSummon) {
-            summonMonsterPile(draft, toSummon)
-            removeFromPile(draft, toSummon, NamedPiles.MonsterDraw)
-        }
-    })
-}
-
-export function activeMonsters(gs: GameState): Immutable<MonsterPile[]> {
-    return Object.values(gs.piles).filter(p => p.type === "monster")
-}
 export function stateBasedActions(gs: GameState): GameState {
     // for each enemy, if they have more attacks than health, kill them
     gs = produce(gs, draft => {
         for (const monsterPile of activeMonsters(gs)) {
-            if (monsterPile.containing.length >= lookupInDb(gs.lookupDb.monsters, monsterPile.monster).health) {
+            if (monsterPile.containing.length >= lookupInDb(draft.lookupDb.monsters, monsterPile.monster).health) {
                 shufflePileIntoPile(draft, monsterPile.id, NamedPiles.Discard)
                 putIntoPile(draft, monsterPile.monster, NamedPiles.MonsterDiscard)
                 deletePile(draft, monsterPile.id)
@@ -235,16 +220,40 @@ type EndTurnAction = {
     actionType: "endTurn"
 }
 
+type ChooseMonsterMoveAction = {
+    actionType: "chooseMonsterMove",
+    actionOption: OptionChoice["optionId"]
+    monster: MonsterPile["id"]
+}
 type Action = 
     | AttachAction
     | EndTurnAction
+    | ChooseMonsterMoveAction
     
 export function getPlayableActions(gs: GameState): Action[] {
-    return getCardsInPlie(gs, NamedPiles.Hand).flatMap(c => activeMonsters(gs).map(m => ({
-        actionType: "attach",
-        card: c,
-        target: m.id
-    })))
+    if (gs.stepStack.length === 0) {
+        return getCardsInPlie(gs, NamedPiles.Hand).flatMap(c => activeMonsters(gs).map(m => ({
+            actionType: "attach",
+            card: c,
+            target: m.id
+        })))
+    }
+
+    if (gs.stepStack[0].stepType === "PromptChoice") {
+        const step = gs.stepStack[0]
+        if (step.source) {
+            const pile = gs.piles[step.source]
+            if (pile.type === "monster") {
+                return lookupInDb(gs.lookupDb.monsters, pile.monster).moves.map<ChooseMonsterMoveAction>(move => ({
+                    actionType: "chooseMonsterMove",
+                    monster: pile.id,
+                    actionOption: move.optionId
+                }))
+            }
+        }
+    }
+
+    return []
 }
 
 // TODO: register handlers for each action
@@ -257,34 +266,23 @@ export function playAction(gs: GameState, action: Action): GameState {
         case "endTurn": 
             return stateBasedActions(produce(gs, draft => {
                 draft.actionTime = startingActionTime
+                draft.stepStack.push(...activeMonsters(draft).map<GameStep>(m => ({
+                    stepType: "PromptChoice",
+                    choices: lookupInDb(draft.lookupDb.monsters, m.monster).moves,
+                    source: m.id
+                })))
             }))
+        case "chooseMonsterMove":
+            return gs
     }
 }
 
 function attachAction(gs: Draft<GameState>, action: AttachAction): void {
     moveCard(gs, action.card, NamedPiles.Hand, action.target)
 }
-/**
- * Monsters (initial guesses of 3 health and 1 time and 1 attack meaning 5? value points)
- * 
-Dissolving Slime (1/2)
-    1A: Discard a card
-Ruthless Goblin (3/1)
-    1A: \\R[1-3] 1D
-    1A: Deal 1D and apply +1T
-Twinkling Faerie (2/1)
-    1A: Hide a card from your hand
-    1A: Deal 1D
-Rusting Golem (3/1)
-    1A: Deal 1D
-    1A: Move an attack from this card to another monster or into your hand
-Clattering Skeleton (2/1)
-    1A: Stun 1T
-    1A: Deal 1D
-Slithering Snake (2/1)
-    1A:  Trash a card from your discard
-    1A: 1D
 
+
+/*
 
 Items
 - Multiple actions per card available outside the hand
@@ -314,10 +312,3 @@ Shop
  */
     
 
-const BaseMonsterDB: MonsterDefinition[] = [
-    {
-        lookupId: "Slime",
-        name: "Slime",
-        health: 3
-    }
-]

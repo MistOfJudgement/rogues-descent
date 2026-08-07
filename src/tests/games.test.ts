@@ -2,8 +2,9 @@
 import { describe, expect, test } from "vitest"
 import { produce } from "immer"
 import { CardDefinition, registerCard } from "../gameplay/card"
-import { emptyGameState, addNewPile, putIntoPile, moveCard, shufflePileIntoPile, drawCard, NamedPiles, summonMonsterFromDraw, activeMonsters, MonsterDefinition, initGame, summonMonsterPile, getPlayableActions, playAction, getCardsInPlie, setupMonsterDrawPile, GameState } from "../gameplay/game"
 import { Identified, registerInDb } from "../gameplay/lookupDb"
+import { GameState, initGame, emptyGameState, NamedPiles, putIntoPile, summonMonsterPile, addNewPile, moveCard, shufflePileIntoPile, drawCard, getPlayableActions, playAction, getCardsInPlie } from "../gameplay/game"
+import { MonsterDefinition, setupMonsterDrawPile, summonMonsterFromDraw, activeMonsters } from "../gameplay/monster"
 describe("Game", () => {
     function createTestGameSetup(cards: Identified<CardDefinition>[] = [], monsters: Identified<MonsterDefinition>[] = [], augmentDB?: {monsters?: MonsterDefinition[], cards?: CardDefinition[]}): GameState {
             return produce(initGame(emptyGameState()), (draft) => {
@@ -38,6 +39,7 @@ describe("Game", () => {
             lookupId: "OneHealth",
             health: 1,
             name: "OneHealth",
+            moves: []
         }
     const baseGameState = produce(emptyGameState(), draft => {
         addNewPile(draft, NamedPiles.Draw)
@@ -158,7 +160,7 @@ describe("Game", () => {
         })
 
         test("ending the turn with an enemy forces an action", () => {
-            let gs = createTestGameSetup([], ["unknown"], {
+            let gs = createTestGameSetup([], ["oneChoiceMonster"], {
                 monsters: [{
                     lookupId: "oneChoiceMonster",
                     name: "oneChoiceMonster",
@@ -173,7 +175,7 @@ describe("Game", () => {
             })
             const monster = activeMonsters(gs)[0]
             gs = playAction(gs, { actionType: "endTurn" })
-            expect(getPlayableActions(gs)).toContain({
+            expect(getPlayableActions(gs)).toContainEqual({
                 actionType: "chooseMonsterMove",
                 monster: monster.id,
                 actionOption: "optionOne"

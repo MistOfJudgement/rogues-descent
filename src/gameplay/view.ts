@@ -10,13 +10,10 @@ s
 */
 
 import { produce } from "immer";
-import { addNewPile, drawCard, initGame, playCard, GameState, putIntoPile, summonMonsterFromDraw, stateBasedActions } from "./game";
+import { GameState, initGame, emptyGameState, putIntoPile, drawCard, playCard, stateBasedActions } from "./game";
+import { summonMonsterFromDraw } from "./monster";
 
-let CurrentState: GameState = {
-    actionTime: 3,
-    piles: {},
-    lastSummon: 0
-}
+let CurrentState: GameState = initGame(emptyGameState())
 
 const gameDiv = document.getElementById("game")
 type GameAction = {

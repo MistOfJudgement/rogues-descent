@@ -1,7 +1,7 @@
 import { Draft } from "immer";
-import { CardDefinition } from "./card";
-import { GameState } from "./game";
-import { registerInDb } from "./lookupDb";
+import { CardDefinition } from "../card";
+import { GameState } from "../game";
+import { registerInDb } from "../lookupDb";
 
 export function loadBaseCardDb(gs: Draft<GameState>) {
     BaseCardDb.forEach(c => {
