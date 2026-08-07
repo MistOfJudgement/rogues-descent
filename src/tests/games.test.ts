@@ -1,11 +1,11 @@
 
 import { describe, expect, test } from "vitest"
 import { produce } from "immer"
-import { CardData, registerCard } from "../gameplay/card"
-import { emptyGameState, addNewPile, putIntoPile, moveCard, shufflePileIntoPile, drawCard, NamedPiles, summonMonsterFromDraw, activeMonsters, MonsterData, initGame, summonMonsterPile, getPlayableActions, playAction, getCardsInPlie, setupMonsterDrawPile, GameState } from "../gameplay/game"
+import { CardDefinition, registerCard } from "../gameplay/card"
+import { emptyGameState, addNewPile, putIntoPile, moveCard, shufflePileIntoPile, drawCard, NamedPiles, summonMonsterFromDraw, activeMonsters, MonsterDefinition, initGame, summonMonsterPile, getPlayableActions, playAction, getCardsInPlie, setupMonsterDrawPile, GameState } from "../gameplay/game"
 import { Identified, registerInDb } from "../gameplay/lookupDb"
 describe("Game", () => {
-    function createTestGameSetup(cards: Identified<CardData>[] = [], monsters: Identified<MonsterData>[] = [], augmentDB?: {monsters: MonsterData[], cards: CardData[]}): GameState {
+    function createTestGameSetup(cards: Identified<CardDefinition>[] = [], monsters: Identified<MonsterDefinition>[] = [], augmentDB?: {monsters?: MonsterDefinition[], cards?: CardDefinition[]}): GameState {
             return produce(initGame(emptyGameState()), (draft) => {
                 // Clear initial draw pile to keep tests deterministic
                 draft.piles[NamedPiles.Draw].containing = []
@@ -15,17 +15,17 @@ describe("Game", () => {
                     return;
                 }
 
-                augmentDB.cards.forEach(c => {
+                augmentDB.cards?.forEach(c => {
                     registerCard(draft, c)
                 });
                 
-                augmentDB.monsters.forEach(m => {
+                augmentDB.monsters?.forEach(m => {
                     registerInDb(draft.lookupDb.monsters, m)
                 })
             })
         }
 
-        const singleDamageCard: CardData = {
+        const singleDamageCard: CardDefinition = {
             cost: 0,
             lookupId: "SingleDamage",
             name: "SingleDamage",
@@ -34,7 +34,7 @@ describe("Game", () => {
             damage: 1,
         }
 
-        const oneHealthMonster: MonsterData = {
+        const oneHealthMonster: MonsterDefinition = {
             lookupId: "OneHealth",
             health: 1,
             name: "OneHealth",
@@ -158,11 +158,23 @@ describe("Game", () => {
         })
 
         test("ending the turn with an enemy forces an action", () => {
-            let gs = createTestGameSetup([], ["unknown"])
+            let gs = createTestGameSetup([], ["unknown"], {
+                monsters: [{
+                    lookupId: "oneChoiceMonster",
+                    name: "oneChoiceMonster",
+                    health: 1,
+                    moves: [
+                        {
+                            optionId: "optionOne",
+                            effect: []
+                        }
+                    ]
+                }],
+            })
             const monster = activeMonsters(gs)[0]
             gs = playAction(gs, { actionType: "endTurn" })
             expect(getPlayableActions(gs)).toContain({
-                actionType: "chooseMonsterAction",
+                actionType: "chooseMonsterMove",
                 monster: monster.id,
                 actionOption: "optionOne"
             })

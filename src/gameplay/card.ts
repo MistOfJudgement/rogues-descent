@@ -12,12 +12,12 @@ type NonAttackCard = {
     damage?: never
 }
 
-export type CardData = {
+export type CardDefinition = {
     name: string
     description: string
     cost: number
 } & (AttackCard | NonAttackCard) & Identifiable<string>
 
-export function registerCard(gs: Draft<GameState>, card: CardData) {
+export function registerCard(gs: Draft<GameState>, card: CardDefinition) {
     registerInDb(gs.lookupDb.cards, card)
 }

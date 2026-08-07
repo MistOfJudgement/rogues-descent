@@ -1,5 +1,5 @@
 import { Draft, enableMapSet, Immutable, produce } from "immer"
-import { CardData, registerCard } from "./card"
+import { CardDefinition, registerCard } from "./card"
 import { BaseCardDb } from "./cardDb"
 import { Identifiable, Identified, LookupDb, lookupInDb, registerInDb } from "./lookupDb"
 
@@ -15,7 +15,7 @@ export const NamedPiles = {
 } as const
 
 
-export type MonsterData = {
+export type MonsterDefinition = {
     name: string
     health: number
 } & Identifiable<string>
@@ -25,7 +25,7 @@ export type BasePile = {
 }
 
 export type OpenPile = BasePile & { type: "transparent" }
-export type MonsterPile = BasePile & { type: "monster", monster: MonsterData["lookupId"] }
+export type MonsterPile = BasePile & { type: "monster", monster: MonsterDefinition["lookupId"] }
 
 export type Pile = OpenPile | MonsterPile
 
@@ -37,8 +37,8 @@ type GameStateData = {
     lastSummon: number
     stepStack: unknown[]
     lookupDb: {
-        cards: LookupDb<CardData>
-        monsters: LookupDb<MonsterData>
+        cards: LookupDb<CardDefinition>
+        monsters: LookupDb<MonsterDefinition>
     }
 } 
 
@@ -60,7 +60,7 @@ export function addNewPile(gs: Draft<GameState>, id: Pile["id"]) {
     gs.piles[id] = createPile(id)
 }
 
-export function summonMonsterPile(gs: Draft<GameState>, monsterId: MonsterData["lookupId"]) {
+export function summonMonsterPile(gs: Draft<GameState>, monsterId: MonsterDefinition["lookupId"]) {
     const instanceId = `${monsterId}-${gs.lastSummon}`
     gs.lastSummon++
     gs.piles[instanceId] = {
@@ -174,7 +174,7 @@ export function drawCard(gs: GameState): GameState {
 function fromPileGetAt(gs: GameState, pile: Pile["id"], index: number): string | undefined {
     return gs.piles[pile].containing.at(index)   
 }
-export function playCard(gs: GameState, card: CardData["lookupId"], target: Pile["id"]): GameState {
+export function playCard(gs: GameState, card: CardDefinition["lookupId"], target: Pile["id"]): GameState {
     return produce(gs, draft => {
         if(fromPileGetAt(draft, NamedPiles.Hand, 0) && draft.piles[target]?.type === "monster") {
             moveCard(draft, card, NamedPiles.Hand, target)
@@ -227,7 +227,7 @@ function deletePile(gs: Draft<GameState>, pile: Pile["id"]): void {
 
 type AttachAction = {
     actionType: "attach",
-    card: Identified<CardData>,
+    card: Identified<CardDefinition>,
     target: MonsterPile["id"]
 }
 
@@ -314,7 +314,7 @@ Shop
  */
     
 
-const BaseMonsterDB: MonsterData[] = [
+const BaseMonsterDB: MonsterDefinition[] = [
     {
         lookupId: "Slime",
         name: "Slime",

@@ -1,5 +1,5 @@
 import { Draft } from "immer";
-import { CardData } from "./card";
+import { CardDefinition } from "./card";
 import { GameState } from "./game";
 import { registerInDb } from "./lookupDb";
 
@@ -8,7 +8,7 @@ export function loadBaseCardDb(gs: Draft<GameState>) {
         registerInDb(gs.lookupDb.cards, c)
     })
 }
-export const BaseCardDb: CardData[] = [{
+export const BaseCardDb: CardDefinition[] = [{
         lookupId: "Knife",
         name: "Knife",
         description: "Deal 1D",
