@@ -3,8 +3,8 @@ import { assert, describe, expect, test } from "vitest"
 import { produce } from "immer"
 import { CardDefinition, registerCard } from "../gameplay/card"
 import { Identified, registerInDb } from "../gameplay/lookupDb"
-import { GameState, initGame, emptyGameState, NamedPiles, putIntoPile, summonMonsterPile, addNewPile, moveCard, shufflePileIntoPile, drawCard, getPlayableActions, playAction, getCardsInPlie } from "../gameplay/game"
-import { MonsterDefinition, setupMonsterDrawPile, summonMonsterFromDraw, activeMonsters } from "../gameplay/monster"
+import { GameState, initGame, emptyGameState, NamedPiles, putIntoPile, summonMonsterPile, addNewPile, moveCard, shufflePileIntoPile, drawCard, getPlayableActions, playAction, getCardsInPlie, AttachAction, MonsterPile, getCostOfAttachAction } from "../gameplay/game"
+import { MonsterDefinition, setupMonsterDrawPile, summonMonsterFromDraw, activeMonsters, getMonsterPile } from "../gameplay/monster"
 describe("Game", () => {
     function createTestGameSetup(cards: Identified<CardDefinition>[] = [], monsters: Identified<MonsterDefinition>[] = [], augmentDB?: {monsters?: MonsterDefinition[], cards?: CardDefinition[]}): GameState {
             return produce(initGame(emptyGameState()), (draft) => {
@@ -41,6 +41,14 @@ describe("Game", () => {
             name: "OneHealth",
             moves: []
         }
+    
+    const ThreeCostCard: CardDefinition = {
+        cost: 3,
+        lookupId: "ThreeCostCard",
+        name: "ThreeCostCard",
+        description: "costs 3",
+        types: ["maneuver"]
+    }
     const baseGameState = produce(emptyGameState(), draft => {
         addNewPile(draft, NamedPiles.Draw)
         addNewPile(draft, NamedPiles.Hand)
@@ -113,13 +121,13 @@ describe("Game", () => {
         
         describe("playable actions", () => {
             test("generates an attach action when monster is present", () => {
-                const gs = createTestGameSetup(["Strike"], ["Slime"])
+                const gs = createTestGameSetup(["Knife"], ["Slime"])
                 
                 const monsterId = activeMonsters(gs)[0].id
 
                 expect(getPlayableActions(gs)).toContainEqual({
                     actionType: "attach",
-                    card: "Strike",
+                    card: "Knife",
                     target: monsterId,
                 })
             })
@@ -127,13 +135,13 @@ describe("Game", () => {
 
         describe("attaching cards", () => {
             test("attaches card from hand to target monster", () => {
-            const gs = createTestGameSetup(["Strike"], ["Slime"])
+            const gs = createTestGameSetup(["Knife"], ["Slime"])
             const monsterId = activeMonsters(gs)[0].id
 
-            const result = playAction(gs, { actionType: "attach", card: "Strike", target: monsterId })
+            const result = playAction(gs, { actionType: "attach", card: "Knife", target: monsterId })
 
-            expect(getCardsInPlie(result, NamedPiles.Hand)).not.toContain("Strike")
-            expect(getCardsInPlie(result, monsterId)).toContain("Strike")
+            expect(getCardsInPlie(result, NamedPiles.Hand)).not.toContain("Knife")
+            expect(getCardsInPlie(result, monsterId)).toContain("Knife")
             })
         })
 
@@ -151,7 +159,7 @@ describe("Game", () => {
 
     describe("turn phases", () => {
         test("ending the turn with no enemies resets your actionTime", () => {
-            let gs = createTestGameSetup(["Strike"], [])
+            let gs = createTestGameSetup(["Knife"], [])
             const startingTime = gs.actionTime
 
             gs = produce(gs, draft => { draft.actionTime -= 1 })
@@ -160,7 +168,7 @@ describe("Game", () => {
         })
 
         test("ending the turn with an enemy forces an action", () => {
-            let gs = createTestGameSetup(["Strike"], ["oneChoiceMonster"], {
+            let gs = createTestGameSetup(["Knife"], ["oneChoiceMonster"], {
                 monsters: [{
                     lookupId: "oneChoiceMonster",
                     name: "oneChoiceMonster",
@@ -209,4 +217,62 @@ describe("Game", () => {
         })
     })
 
+    describe("costs", () => {
+        test("actions that cost less than or equal current T show up", () => {
+            let gs = produce(createTestGameSetup([ThreeCostCard.lookupId], ["Slime"], {cards: [ThreeCostCard]}), draft => {
+                draft.actionTime = 3
+            })
+
+            const actions = getPlayableActions(gs)
+
+            expect(actions).toContainEqual(expect.objectContaining<Partial<AttachAction>>({card: ThreeCostCard.lookupId}))
+        })
+        
+        test("actions that cost more than current T dont show up", () => {
+            let gs = produce(createTestGameSetup([ThreeCostCard.lookupId], ["Slime"], {cards: [ThreeCostCard]}), draft => {
+                draft.actionTime = 1
+            })
+
+            const actions = getPlayableActions(gs)
+
+            expect(actions).not.toContainEqual(expect.objectContaining<Partial<AttachAction>>({card: ThreeCostCard.lookupId}))
+        })
+
+        test("playing actions decrement T", () => {
+            let gs = produce(createTestGameSetup([ThreeCostCard.lookupId], ["Slime"], { cards: [ThreeCostCard] }), draft => {
+                draft.actionTime = 4
+            })
+            const actions = getPlayableActions(gs)
+            const toPlay = actions.filter(a => a.actionType === "attach")[0]
+            const result = playAction(gs, toPlay)
+
+            expect(result.actionTime).toEqual(1)
+        })
+
+        test("costs can be variable", () => {
+            const variableSpell: CardDefinition = {
+                lookupId: "variableSpell",
+                types: ["maneuver"],
+                cost: (gs: GameState, target: MonsterPile["id"]) => {
+                    const pile = gs.piles[target]
+                    if (pile.type === "monster") {
+                        if (pile.monster === "Slime") {
+                            return 2
+                        } else {
+                            return 3
+                        }
+                    }
+                    return 1
+                }
+            }
+
+            let gs = createTestGameSetup([variableSpell.lookupId], ["Slime", "Second"], {cards:[variableSpell]})
+            const actions = getPlayableActions(gs)
+            const slimeAction: AttachAction = actions.filter(a => a.actionType === "attach").filter(a => getMonsterPile(gs, a.target).monster === "Slime")[0]
+            const secondAction: AttachAction = actions.filter(a => a.actionType === "attach").filter(a => getMonsterPile(gs, a.target).monster === "Second")[0]
+        
+            expect(getCostOfAttachAction(gs, slimeAction)).toEqual(2)
+            expect(getCostOfAttachAction(gs, secondAction)).toEqual(3)
+        })
+    })
 })

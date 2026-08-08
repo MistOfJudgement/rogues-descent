@@ -30,3 +30,8 @@ export function setupMonsterDrawPile(gs: GameState): GameState {
         addNewPile(draft, NamedPiles.MonsterDiscard)
     })
 }
+export function getMonsterPile(gs: GameState, pile: MonsterPile["id"]): Immutable<MonsterPile> {
+    const p = gs.piles[pile]
+    if (p.type !== "monster") throw new Error("tried to get non existent monster")
+    return p
+}

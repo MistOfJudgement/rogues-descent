@@ -1,5 +1,5 @@
 import { Draft, enableMapSet, Immutable, produce } from "immer"
-import { CardDefinition, registerCard } from "./card"
+import { CardDefinition, lookupCard, registerCard } from "./card"
 import { BaseCardDb } from "./db/cardDb"
 import { Identifiable, Identified, LookupDb, lookupInDb, registerInDb } from "./lookupDb"
 import { BaseMonsterDB } from "./db/monsterDb"
@@ -239,13 +239,13 @@ function deletePile(gs: Draft<GameState>, pile: Pile["id"]): void {
 }
 
 
-type AttachAction = {
+export type AttachAction = {
     actionType: "attach",
     card: Identified<CardDefinition>,
     target: MonsterPile["id"]
 }
 
-type EndTurnAction = {
+export type EndTurnAction = {
     actionType: "endTurn"
 }
 
@@ -260,19 +260,27 @@ type ChooseOptionAction = {
     actionOption: OptionChoice["optionId"]
 }
 
-type Action = 
+export type Action = 
     | AttachAction
     | EndTurnAction
     | ChooseMonsterMoveAction
     | ChooseOptionAction
-    
+export function getCostOfAttachAction(gs: GameState, attachAction: AttachAction): number {
+    const card = lookupCard(gs, attachAction.card)
+    if (typeof card.cost === "number") {
+        return card.cost
+    }
+    return card.cost(gs, attachAction.target)
+}
 export function getPlayableActions(gs: GameState): Action[] {
     if (gs.stepStack.length === 0) {
-        return getCardsInPlie(gs, NamedPiles.Hand).flatMap(c => activeMonsters(gs).map(m => ({
+        return getCardsInPlie(gs, NamedPiles.Hand).flatMap(c => activeMonsters(gs)
+        .map<Action>(m => ({
             actionType: "attach",
             card: c,
             target: m.id
         })))
+        .filter(m => (m.actionType !== "attach" || getCostOfAttachAction(gs, m) <= gs.actionTime))
     }
 
     if (gs.stepStack[0].stepType === "PromptChoice") {
@@ -327,6 +335,7 @@ export function playAction(gs: GameState, action: Action): GameState {
 }
 
 function attachAction(gs: Draft<GameState>, action: AttachAction): void {
+    gs.actionTime -= getCostOfAttachAction(gs, action)
     moveCard(gs, action.card, NamedPiles.Hand, action.target)
 }
 

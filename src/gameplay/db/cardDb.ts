@@ -8,14 +8,36 @@ export function loadBaseCardDb(gs: Draft<GameState>) {
         registerInDb(gs.lookupDb.cards, c)
     })
 }
-export const BaseCardDb: CardDefinition[] = [{
+
+
+export const BaseCardDb: CardDefinition[] = [
+    {
         lookupId: "Knife",
         name: "Knife",
         description: "Deal 1D",
-    cost: 1,
-    types: ["attack"],
-    damage: 1
-}]
+        cost: 1,
+        types: ["attack"],
+        damage: 1
+    },
+    {
+        lookupId: "Rapier",
+        name: "Rapier",
+        description: "Deal 2D",
+        cost: 2,
+        types: ["attack"],
+        damage: 2
+    },
+    {
+        lookupId: "HitAndRun",
+        name: "Hit and Run",
+        description: "Costs -1T if following an Attack",
+        types: ["maneuver"],
+        cost: 1,
+        // effects: [{
+        //     "drawCards"
+        // }]
+    }
+]
 
 /*
 Actions
@@ -27,7 +49,7 @@ Bolt - (1T/Attack Spell)
     modal choice
 Hit and Run - (1T/Maneuver)
     Costs -1T if following an Attack
-    Draw a card
+    Draw a card (this should def be 2 cards)
     variable cost
 Rapier - (2T/Attack)
     Deal 2D
