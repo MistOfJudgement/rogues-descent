@@ -185,12 +185,15 @@ export function fromPileGetAt(gs: GameState, pile: Pile["id"], index: number): s
     return gs.piles[pile].containing.at(index)   
 }
 export function playCard(gs: GameState, card: CardDefinition["lookupId"], target: Pile["id"]): GameState {
-    return produce(gs, draft => {
-        if(fromPileGetAt(draft, NamedPiles.Hand, 0) && draft.piles[target]?.type === "monster") {
-            moveCard(draft, card, NamedPiles.Hand, target)
-        }
-        //otherwise card doesn't exist or valid target doesn't exist
-    })
+    if(fromPileGetAt(gs, NamedPiles.Hand, 0) && gs.piles[target]?.type === "monster") {
+        return playAction(gs, {
+            actionType: "attach",
+            card: card,
+            target: target
+        })
+    }
+    return gs
+    //otherwise card doesn't exist or valid target doesn't exist
 }
 
 export function stateBasedActions(gs: GameState): GameState {

@@ -1,7 +1,8 @@
 import { Draft } from "immer";
-import { CardDefinition } from "../card";
+import { CardDefinition, lookupCard } from "../card";
 import { GameState } from "../game";
 import { registerInDb } from "../lookupDb";
+import { getMonsterPile } from "../monster";
 
 export function loadBaseCardDb(gs: Draft<GameState>) {
     BaseCardDb.forEach(c => {
@@ -32,7 +33,14 @@ export const BaseCardDb: CardDefinition[] = [
         name: "Hit and Run",
         description: "Costs -1T if following an Attack",
         types: ["maneuver"],
-        cost: 1,
+        cost(gs, target) {
+            const monster = getMonsterPile(gs, target)
+            const lastCard = monster.containing.at(-1)
+            if (lastCard && lookupCard(gs, lastCard).types.includes("attack")) {
+                return 0
+            }
+            return 1
+        },
         // effects: [{
         //     "drawCards"
         // }]
